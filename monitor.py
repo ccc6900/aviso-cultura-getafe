@@ -121,13 +121,32 @@ def send_email(to_addresses, subject, body):
         smtp.send_message(msg)
 
 def main():
-    print("Consultando páginas activas...")
-    webs = supabase_get("webs", {
+    print("Consultando páginas guardadas en Supabase...")
+    # Consultamos primero sin filtro para diagnosticar cualquier discrepancia
+    # entre el valor de la columna activa y el filtro REST.
+    todas_las_webs = supabase_get("webs", {
         "select": "id,nombre,url,activa,destinatarios(correo)",
-        "activa": "eq.true",
         "order": "id.asc",
     })
+    print(f"Filas visibles en la tabla webs: {len(todas_las_webs)}")
+    for fila in todas_las_webs:
+        print(
+            f"[CONFIG] nombre={fila.get('nombre')!r}; "
+            f"activa={fila.get('activa')!r}; "
+            f"URL={'sí' if fila.get('url') else 'no'}; "
+            f"destinatarios={len(fila.get('destinatarios') or [])}"
+        )
+
+    webs = [
+        fila for fila in todas_las_webs
+        if fila.get("activa") is True or str(fila.get("activa", "")).strip().lower() in ("true", "t", "1")
+    ]
     print(f"Páginas activas: {len(webs)}")
+    if not todas_las_webs:
+        print(
+            "[DIAGNÓSTICO] Supabase no devuelve filas de webs a la clave configurada. "
+            "Comprueba que el secreto de GitHub contiene la clave secreta del mismo proyecto."
+        )
 
     for web in webs:
         web_id = str(web["id"])
