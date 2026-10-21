@@ -1,0 +1,212 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avisos de entradas</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:850px;margin:30px auto;padding:0 16px;background:#f4f6f9;color:#202938}
+h1{font-size:27px}h2{font-size:20px}
+section{background:white;padding:20px;margin:18px 0;border-radius:12px;box-shadow:0 2px 8px #0001}
+input,button{font:inherit;padding:11px;margin:5px 0;box-sizing:border-box}
+input{width:100%;border:1px solid #bbc4d0;border-radius:6px}
+button{background:#1769aa;color:white;border:0;border-radius:6px;cursor:pointer}
+button.sec{background:#596579}button.danger{background:#b52e36}
+.small{color:#536171;font-size:14px}.web{border:1px solid #ddd;padding:12px;border-radius:8px;margin:10px 0;overflow-wrap:anywhere}
+.hidden{display:none}.status{white-space:pre-wrap;font-size:14px}
+</style>
+</head>
+<body>
+<h1>🔔 Avisos de entradas</h1>
+<p class="small">Panel privado para gestionar las páginas y los correos que recibirán avisos.</p>
+
+<section id="login">
+<h2>Acceso al panel</h2>
+<label>Correo electrónico</label>
+<input id="email" type="email" autocomplete="username" placeholder="Tu correo">
+<label>Contraseña del panel</label>
+<input id="password" type="password" autocomplete="current-password" placeholder="Tu contraseña">
+<button id="loginBtn">Entrar</button>
+<button id="signupBtn" class="sec">Crear cuenta</button>
+<p id="loginMsg" class="status"></p>
+</section>
+
+<section id="panel" class="hidden">
+<p>Sesión iniciada: <strong id="userEmail"></strong></p>
+<button id="logoutBtn" class="sec">Cerrar sesión</button>
+<h2>Añadir página que vigilar</h2>
+<label>Nombre identificativo</label>
+<input id="nombre" placeholder="Ej. Cultura Getafe">
+<label>URL de la página de venta</label>
+<input id="url" type="url" placeholder="https://ejemplo.com/entradas">
+<label>Correos destinatarios (separa varios con comas)</label>
+<input id="correos" type="text" placeholder="correo1@ejemplo.com, correo2@ejemplo.com">
+<button id="addBtn">Guardar página</button>
+<p class="small">Guarda la página y sus destinatarios. Esto todavía no activa el detector automático de entradas.</p>
+<p id="panelMsg" class="status"></p>
+</section>
+
+<section id="lista" class="hidden">
+<h2>Mis páginas vigiladas</h2>
+<div id="webs"></div>
+</section>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://yecsgrriuorqjnpldvyo.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_ZvOw9U2Z2FTH_BVePJVnHw_VeipbTzj';
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = id => document.getElementById(id);
+function mensaje(id, texto) { $(id).textContent = texto; }
+
+async function actualizarSesion() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const dentro = !!session;
+  $('login').classList.toggle('hidden', dentro);
+  $('panel').classList.toggle('hidden', !dentro);
+  $('lista').classList.toggle('hidden', !dentro);
+  if (dentro) {
+    $('userEmail').textContent = session.user.email || '';
+    await cargarWebs();
+  }
+}
+
+$('loginBtn').onclick = async () => {
+  const { error } = await supabase.auth.signInWithPassword({
+    email: $('email').value.trim(),
+    password: $('password').value
+  });
+  mensaje('loginMsg', error ? error.message : 'Acceso correcto.');
+  if (!error) await actualizarSesion();
+};
+
+$('signupBtn').onclick = async () => {
+  const { error } = await supabase.auth.signUp({
+    email: $('email').value.trim(),
+    password: $('password').value
+  });
+  mensaje('loginMsg', error
+    ? error.message
+    : 'Solicitud enviada. Si se requiere confirmar el correo, revisa tu bandeja antes de entrar.');
+};
+
+$('logoutBtn').onclick = async () => {
+  await supabase.auth.signOut();
+  await actualizarSesion();
+};
+
+$('addBtn').onclick = async () => {
+  const nombre = $('nombre').value.trim();
+  const url = $('url').value.trim();
+  const correos = [...new Set($('correos').value.split(',').map(x => x.trim().toLowerCase()).filter(Boolean))];
+
+  if (!nombre || !url || !/^https?:\/\//i.test(url)) {
+    mensaje('panelMsg', 'Introduce un nombre y una URL válida que empiece por https:// o http://.');
+    return;
+  }
+  if (!correos.length || correos.some(c => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c))) {
+    mensaje('panelMsg', 'Introduce al menos un correo válido. Separa varios con comas.');
+    return;
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    mensaje('panelMsg', 'Tu sesión ha caducado. Vuelve a entrar.');
+    return;
+  }
+
+  const { data: web, error } = await supabase.from('webs')
+    .insert({ usuario_id: user.id, nombre, url })
+    .select('id').single();
+
+  if (error) {
+    mensaje('panelMsg', 'No se pudo guardar la página: ' + error.message);
+    return;
+  }
+
+  const filas = correos.map(correo => ({ web_id: web.id, correo }));
+  const { error: errCorreos } = await supabase.from('destinatarios').insert(filas);
+
+  if (errCorreos) {
+    await supabase.from('webs').delete().eq('id', web.id);
+    mensaje('panelMsg', 'No se pudieron guardar los destinatarios: ' + errCorreos.message);
+    return;
+  }
+
+  $('nombre').value = '';
+  $('url').value = '';
+  $('correos').value = '';
+  mensaje('panelMsg', 'Página y destinatarios guardados correctamente.');
+  await cargarWebs();
+};
+
+async function cargarWebs() {
+  const { data, error } = await supabase.from('webs')
+    .select('id,nombre,url,activa,destinatarios(id,correo)')
+    .order('id', { ascending: false });
+
+  if (error) {
+    $('webs').textContent = 'Error al cargar páginas: ' + error.message;
+    return;
+  }
+  $('webs').replaceChildren();
+  if (!data.length) {
+    $('webs').textContent = 'Todavía no has añadido ninguna página.';
+    return;
+  }
+
+  for (const w of data) {
+    const div = document.createElement('div');
+    div.className = 'web';
+    const titulo = document.createElement('strong');
+    titulo.textContent = w.nombre;
+    div.append(titulo);
+
+    const enlace = document.createElement('p');
+    enlace.textContent = w.url;
+    div.append(enlace);
+
+    const estado = document.createElement('p');
+    estado.textContent = 'Vigilancia: ' + (w.activa ? 'activada' : 'desactivada');
+    div.append(estado);
+
+    const destinatarios = document.createElement('p');
+    destinatarios.textContent = 'Destinatarios: ' +
+      ((w.destinatarios || []).map(d => d.correo).join(', ') || 'ninguno');
+    div.append(destinatarios);
+
+    const toggle = document.createElement('button');
+    toggle.className = 'sec';
+    toggle.textContent = w.activa ? 'Desactivar' : 'Activar';
+    toggle.onclick = async () => {
+      const { error } = await supabase.from('webs')
+        .update({ activa: !w.activa }).eq('id', w.id);
+      if (error) alert('Error: ' + error.message);
+      await cargarWebs();
+    };
+    div.append(toggle);
+
+    const borrar = document.createElement('button');
+    borrar.className = 'danger';
+    borrar.textContent = 'Eliminar';
+    borrar.onclick = async () => {
+      if (!confirm('¿Eliminar esta página y todos sus destinatarios?')) return;
+      const { error } = await supabase.from('webs').delete().eq('id', w.id);
+      if (error) alert('Error: ' + error.message);
+      await cargarWebs();
+    };
+    div.append(borrar);
+    $('webs').append(div);
+  }
+}
+
+supabase.auth.onAuthStateChange(() => {
+  setTimeout(() => actualizarSesion(), 0);
+});
+actualizarSesion();
+</script>
+</body>
+</html>
