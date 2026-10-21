@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
       - name: Preparar Python
         uses: actions/setup-python@v5
         with:
