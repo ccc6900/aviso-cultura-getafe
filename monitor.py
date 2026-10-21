@@ -218,6 +218,9 @@ def main():
         try:
             events = fetch_all_event_candidates(page_url)
             print(f"[OK] {nombre}: {len(events)} elementos detectados en total.")
+            print(f"[LISTADO] Elementos detectados en {nombre}:")
+            for numero, evento in enumerate(events, start=1):
+                print(f"  {numero}. {evento['titulo']} | {evento['url']}")
         except Exception as exc:
             print(f"[ERROR] No se pudo revisar {nombre} ({page_url}): {exc}")
             continue
