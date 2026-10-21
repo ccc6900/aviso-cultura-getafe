@@ -1,0 +1,23 @@
+name: Probar envío GMX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probar-correo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Enviar correo de prueba
+        env:
+          GMX_EMAIL: ${{ secrets.GMX_EMAIL }}
+          GMX_PASSWORD: ${{ secrets.GMX_PASSWORD }}
+        run: python test_gmx.py
