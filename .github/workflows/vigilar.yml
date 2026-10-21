@@ -30,7 +30,7 @@ jobs:
 
       - name: Revisar páginas y enviar avisos
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: https://yecsgrriuorqjnpldvyo.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GMX_EMAIL: ${{ secrets.GMX_EMAIL }}
           GMX_PASSWORD: ${{ secrets.GMX_PASSWORD }}
