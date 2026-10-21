@@ -116,30 +116,36 @@ def fetch_all_event_candidates(page_url):
 
     # Descubrir las páginas disponibles a partir de los enlaces de paginación.
     pagination_soup = BeautifulSoup(first_html, "html.parser")
-    page_numbers = {1}
+    page_urls = {1: first_response.url}
     for link in pagination_soup.find_all("a", href=True):
-        href = urljoin(page_url, link["href"])
+        href = urljoin(first_response.url, link["href"])
         parsed = urlparse(href)
         match = re.search(r"(?:[?&])pagina=(\d+)", parsed.query, flags=re.IGNORECASE)
-        if parsed.netloc == urlparse(page_url).netloc and match:
-            page_numbers.add(int(match.group(1)))
+        if parsed.netloc == urlparse(first_response.url).netloc and match:
+            page_number = int(match.group(1))
+            if 1 <= page_number <= 20:
+                page_urls[page_number] = href
 
-    # La web suele mostrar un enlace a la última página; limitar la cantidad
-    # para evitar bucles o peticiones descontroladas ante enlaces inesperados.
-    max_page = min(max(page_numbers), 20)
+    # La web suele mostrar enlaces a todas las páginas; limitar a 20 por seguridad.
+    max_page = min(max(page_urls), 20)
     all_events = []
     seen = set()
 
     for page_number in range(1, max_page + 1):
+        current_url = page_urls.get(page_number)
+        if not current_url:
+            # Si falta el enlace de un número intermedio, construirlo sobre la
+            # URL de resultados que ya hemos descubierto.
+            base = next((u for n, u in page_urls.items() if n == 1), first_response.url)
+            parsed = urlparse(base)
+            from urllib.parse import parse_qsl, urlencode, urlunparse
+            query_items = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k.lower() != "pagina"]
+            query_items.append(("pagina", str(page_number)))
+            current_url = urlunparse(parsed._replace(query=urlencode(query_items)))
+
         if page_number == 1:
             html = first_html
-            current_url = page_url
         else:
-            parsed = urlparse(page_url)
-            query_items = [(k, v) for k, v in __import__("urllib.parse", fromlist=["parse_qsl"]).parse_qsl(parsed.query, keep_blank_values=True) if k.lower() != "pagina"]
-            query_items.append(("pagina", str(page_number)))
-            from urllib.parse import urlencode, urlunparse
-            current_url = urlunparse(parsed._replace(query=urlencode(query_items)))
             response = session.get(current_url, timeout=35)
             response.raise_for_status()
             response.encoding = response.apparent_encoding or response.encoding
