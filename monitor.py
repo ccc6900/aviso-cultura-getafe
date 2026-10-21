@@ -107,6 +107,54 @@ def event_candidates(html, page_url):
         unique[event["huella"]] = event
     return list(unique.values())
 
+def fetch_all_event_candidates(page_url):
+    """Lee todas las páginas de resultados enlazadas por la web."""
+    first_response = session.get(page_url, timeout=35)
+    first_response.raise_for_status()
+    first_response.encoding = first_response.apparent_encoding or first_response.encoding
+    first_html = first_response.text
+
+    # Descubrir las páginas disponibles a partir de los enlaces de paginación.
+    pagination_soup = BeautifulSoup(first_html, "html.parser")
+    page_numbers = {1}
+    for link in pagination_soup.find_all("a", href=True):
+        href = urljoin(page_url, link["href"])
+        parsed = urlparse(href)
+        match = re.search(r"(?:[?&])pagina=(\d+)", parsed.query, flags=re.IGNORECASE)
+        if parsed.netloc == urlparse(page_url).netloc and match:
+            page_numbers.add(int(match.group(1)))
+
+    # La web suele mostrar un enlace a la última página; limitar la cantidad
+    # para evitar bucles o peticiones descontroladas ante enlaces inesperados.
+    max_page = min(max(page_numbers), 20)
+    all_events = []
+    seen = set()
+
+    for page_number in range(1, max_page + 1):
+        if page_number == 1:
+            html = first_html
+            current_url = page_url
+        else:
+            parsed = urlparse(page_url)
+            query_items = [(k, v) for k, v in __import__("urllib.parse", fromlist=["parse_qsl"]).parse_qsl(parsed.query, keep_blank_values=True) if k.lower() != "pagina"]
+            query_items.append(("pagina", str(page_number)))
+            from urllib.parse import urlencode, urlunparse
+            current_url = urlunparse(parsed._replace(query=urlencode(query_items)))
+            response = session.get(current_url, timeout=35)
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding or response.encoding
+            html = response.text
+
+        page_events = event_candidates(html, current_url)
+        print(f"[PÁGINA] {page_number}/{max_page}: {len(page_events)} elementos")
+        for event in page_events:
+            if event["huella"] not in seen:
+                seen.add(event["huella"])
+                all_events.append(event)
+
+    return all_events
+
+
 def send_email(to_addresses, subject, body):
     msg = EmailMessage()
     msg["From"] = GMX_EMAIL
@@ -162,11 +210,8 @@ def main():
             continue
 
         try:
-            response = session.get(page_url, timeout=35)
-            response.raise_for_status()
-            response.encoding = response.apparent_encoding or response.encoding
-            events = event_candidates(response.text, page_url)
-            print(f"[OK] {nombre}: {len(events)} elementos detectados.")
+            events = fetch_all_event_candidates(page_url)
+            print(f"[OK] {nombre}: {len(events)} elementos detectados en total.")
         except Exception as exc:
             print(f"[ERROR] No se pudo revisar {nombre} ({page_url}): {exc}")
             continue
@@ -193,6 +238,21 @@ def main():
                     {"web_id": web_id, "huella": e["huella"], "titulo": e["titulo"], "url": e["url"]}
                     for e in new_events
                 ], prefer="resolution=ignore-duplicates,return=minimal")
+            continue
+
+        # La primera versión solo leía una parte de la web. Si el historial
+        # es claramente incompleto, completar la referencia actual sin avisar
+        # de eventos antiguos que simplemente estaban en páginas no leídas.
+        if len(known_rows) < len(events) and len(new_events) >= 5:
+            print(
+                f"[REFERENCIA] {nombre}: el historial tenía {len(known_rows)} elementos "
+                f"y ahora se ven {len(events)}. Guardando {len(new_events)} elementos "
+                "faltantes como referencia inicial, sin enviar avisos."
+            )
+            supabase_post("alertas_enviadas", [
+                {"web_id": web_id, "huella": e["huella"], "titulo": e["titulo"], "url": e["url"]}
+                for e in new_events
+            ], prefer="resolution=ignore-duplicates,return=minimal")
             continue
 
         for event in new_events:
