@@ -101,10 +101,41 @@ def event_candidates(html, page_url):
             "huella": fingerprint,
         })
 
-    # De-duplicate repeated headings within the same page.
+    # Un mismo evento puede mostrar el título y el nombre del artista como
+    # encabezados separados que apuntan a la misma ficha. Agrupar por URL
+    # normalizada y conservar el título que más parece el nombre del evento.
+    def normalized_event_url(value):
+        parsed = urlparse(value)
+        path = parsed.path.rstrip("/")
+        return f"{parsed.netloc.lower()}{path}"
+
+    def title_score(value):
+        stripped = value.strip().strip('"“”\'‘’')
+        score = 0
+        if value[:1] in ('"', "“", "‘", "'"):
+            score += 10
+        letters = [char for char in stripped if char.isalpha()]
+        if letters:
+            uppercase_ratio = sum(char.isupper() for char in letters) / len(letters)
+            if uppercase_ratio > 0.75:
+                score += 5
+        if len(stripped) > 5:
+            score += 1
+        return score
+
     unique = {}
     for event in events:
-        unique[event["huella"]] = event
+        key = normalized_event_url(event["url"])
+        existing = unique.get(key)
+        if existing is None or title_score(event["titulo"]) > title_score(existing["titulo"]):
+            # Mantener un título legible sin comillas decorativas.
+            clean_title = event["titulo"].strip().strip('"“”\'‘’').strip()
+            event = dict(event)
+            event["titulo"] = clean_title
+            fingerprint_source = f"{event['titulo'].lower()}|{event['url'].rstrip('/')}"
+            event["huella"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+            unique[key] = event
+
     return list(unique.values())
 
 def fetch_all_event_candidates(page_url):
