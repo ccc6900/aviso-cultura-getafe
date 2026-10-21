@@ -283,11 +283,11 @@ def main():
         # La primera versión solo leía una parte de la web. Si el historial
         # es claramente incompleto, completar la referencia actual sin avisar
         # de eventos antiguos que simplemente estaban en páginas no leídas.
-        if len(known_rows) < len(events) and len(new_events) >= 5:
+        if len(new_events) >= max(5, len(events) // 2) and (len(known_rows) < len(events) or len(new_events) >= len(events) // 2):
             print(
                 f"[REFERENCIA] {nombre}: el historial tenía {len(known_rows)} elementos "
                 f"y ahora se ven {len(events)}. Guardando {len(new_events)} elementos "
-                "faltantes como referencia inicial, sin enviar avisos."
+                "como referencia actualizada, sin enviar avisos para evitar falsos positivos."
             )
             supabase_post("alertas_enviadas", [
                 {"web_id": web_id, "huella": e["huella"], "titulo": e["titulo"], "url": e["url"]}
