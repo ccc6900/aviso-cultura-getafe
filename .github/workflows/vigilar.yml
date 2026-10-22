@@ -2,7 +2,7 @@ name: Vigilar páginas de entradas
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
